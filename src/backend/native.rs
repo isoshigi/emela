@@ -10,17 +10,21 @@ use crate::typecheck::{CheckMode, TypedProgram};
 
 use super::{lowering, EmitOptions};
 
-pub(crate) struct NativeBackendProfile {
-    pub(super) target: Target,
+pub(crate) enum NativeBackendProfile {
+    Aarch64AppleDarwin,
+    X86_64UnknownLinuxGnu,
 }
 
 impl NativeBackendProfile {
-    pub(super) fn new(target: Target) -> Self {
-        Self { target }
+    pub(super) fn target(&self) -> Target {
+        match self {
+            Self::Aarch64AppleDarwin => Target::Aarch64AppleDarwin,
+            Self::X86_64UnknownLinuxGnu => Target::X86_64UnknownLinuxGnu,
+        }
     }
 
     pub(super) fn platform(&self) -> PlatformSpec {
-        PlatformSpec::native_for_target(self.target)
+        PlatformSpec::native_for_target(self.target())
     }
 
     pub(super) fn emit(
@@ -30,14 +34,15 @@ impl NativeBackendProfile {
         typed: &TypedProgram,
         options: EmitOptions<'_>,
     ) -> Result<()> {
-        if options.target != Some(self.target) {
+        let target = self.target();
+        if options.target != Some(target) {
             return Err(Error::new(format!(
                 "backend profile `{}` requires target `{}`",
                 self.name(),
-                self.target
+                target
             )));
         }
-        let assembly = emit_native_assembly_for_platform(self.target, platform, program, typed)?;
+        let assembly = emit_native_assembly_for_platform(target, platform, program, typed)?;
         if let Some(path) = options.artifact {
             fs::write(path, assembly).map_err(|err| {
                 Error::new(format!(
@@ -56,7 +61,7 @@ impl NativeBackendProfile {
             ));
         };
         build_native_executable(
-            self.target,
+            target,
             platform,
             program,
             options.input,
@@ -66,10 +71,9 @@ impl NativeBackendProfile {
     }
 
     fn name(&self) -> &'static str {
-        match self.target {
-            Target::Aarch64AppleDarwin => "native-aarch64-apple-darwin",
-            Target::X86_64UnknownLinuxGnu => "native-x86_64-unknown-linux-gnu",
-            Target::Wasm32UnknownUnknown | Target::Wasm32Wasi => "native-unsupported",
+        match self {
+            Self::Aarch64AppleDarwin => "native-aarch64-apple-darwin",
+            Self::X86_64UnknownLinuxGnu => "native-x86_64-unknown-linux-gnu",
         }
     }
 }

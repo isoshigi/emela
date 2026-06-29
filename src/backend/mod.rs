@@ -50,11 +50,11 @@ impl Backend {
             "native" => Err(Error::new(
                 "backend profile `native` is no longer supported; use `native-aarch64-apple-darwin` or `native-x86_64-unknown-linux-gnu`",
             )),
-            "native-aarch64-apple-darwin" => Ok(Self::Native(native::NativeBackendProfile::new(
-                Target::Aarch64AppleDarwin,
-            ))),
+            "native-aarch64-apple-darwin" => Ok(Self::Native(
+                native::NativeBackendProfile::Aarch64AppleDarwin,
+            )),
             "native-x86_64-unknown-linux-gnu" => Ok(Self::Native(
-                native::NativeBackendProfile::new(Target::X86_64UnknownLinuxGnu),
+                native::NativeBackendProfile::X86_64UnknownLinuxGnu,
             )),
             "js" => Err(Error::new(
                 "backend profile `js` is no longer supported; use `js-node` or `js-bun`",
@@ -71,7 +71,7 @@ impl Backend {
 
     pub(crate) fn target(&self) -> Option<Target> {
         match self {
-            Self::Native(backend) => Some(backend.target),
+            Self::Native(backend) => Some(backend.target()),
             Self::Wasm(backend) => backend.target(),
             Self::Js(_) => None,
             Self::External(backend) => backend.target(),
