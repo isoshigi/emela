@@ -50,7 +50,7 @@ impl Backend for WasmBackend {
         // IR stream stays untouched.
         let mut ir = ir.clone();
         insert_rc_ops(&mut ir);
-        let wat = emit_module(&ir)?;
+        let wat = emit_module(&ir, &options.platform_registry)?;
         match options.mode {
             EmitMode::Text => Ok(Artifact::text(ArtifactKind::WasmText, wat)),
             EmitMode::Default => {
@@ -636,7 +636,7 @@ fn emit_drop_glue(drops: &DropTable) -> String {
 // Module assembly
 // ---------------------------------------------------------------------------
 
-fn emit_module(ir: &IrProgram) -> Result<String> {
+fn emit_module(ir: &IrProgram, platform_registry: &[emela_codegen::PlatformFn]) -> Result<String> {
     let main = ir
         .functions
         .iter()
@@ -728,6 +728,12 @@ fn emit_module(ir: &IrProgram) -> Result<String> {
         // the historical one-parameter shape the host binds against.
         module.push_str("  (export \"alloc\" (func $alloc_host))\n");
     }
+    // Capability manifest (spec 0025): embed the program's requirements as a
+    // custom section so hosts can audit before instantiation.
+    let manifest = emela_codegen::compute_manifest(ir, platform_registry);
+    let manifest_json = emela_codegen::serialize_manifest(&manifest);
+    let manifest_bytes = wat_bytes(manifest_json.as_bytes());
+    let _ = writeln!(module, "  (@custom \"emela:capabilities\" (after last) \"{manifest_bytes}\")");
     module.push_str(")\n");
     Ok(module)
 }

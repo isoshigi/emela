@@ -79,6 +79,11 @@ pub struct BackendOptions {
     pub mode: EmitMode,
     pub target: Option<String>,
     pub runtime: Option<String>,
+    /// The platform registry (standard + host externs) for capability manifest
+    /// generation (spec 0025). Backends use this to map platform function names
+    /// to their capabilities.
+    #[serde(skip)]
+    pub platform_registry: Vec<crate::PlatformFn>,
 }
 
 /// A code-generation target.

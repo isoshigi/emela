@@ -48,7 +48,7 @@ pub fn run() -> Result<()> {
         Commands::Build { args } => {
             reject_library(&args, "build")?;
             let mode = args.emit_mode()?;
-            let artifact = build(&args.input, &args.packages, args.backend.as_deref(), mode)?;
+            let artifact = build(&args.input, &args.packages, &args.host_interfaces, args.backend.as_deref(), mode)?;
             write_artifact(artifact, args.output)
         }
         Commands::Ir { args, rc } => {
@@ -71,7 +71,7 @@ pub fn run() -> Result<()> {
         Commands::Run { args } => {
             reject_library(&args, "run")?;
             reject_run_flags(&args)?;
-            run_program(&args.input, &args.packages, args.backend.as_deref())
+            run_program(&args.input, &args.packages, &args.host_interfaces, args.backend.as_deref())
         }
         Commands::Backends => {
             for (name, tier) in registry().list() {
@@ -99,12 +99,15 @@ pub fn run() -> Result<()> {
 fn build(
     input: &PathBuf,
     package_paths: &[PathBuf],
+    host_interfaces: &[String],
     backend: Option<&str>,
     mode: EmitMode,
 ) -> Result<Artifact> {
     let ir = compile_to_ir(input, package_paths)?;
+    let platform_registry = build_platform_registry(host_interfaces);
     let options = BackendOptions {
         mode,
+        platform_registry,
         ..Default::default()
     };
     let requested = backend.unwrap_or(DEFAULT_BACKEND);
@@ -133,11 +136,18 @@ fn build(
     backend.compile(&ir, &options).map_err(Error::from)
 }
 
+/// Builds the platform registry for capability manifest generation (spec 0025).
+/// Initially returns the standard platform interface; host interface externs
+/// (spec 0026) will be appended when activated via `--host-interface`.
+fn build_platform_registry(_host_interfaces: &[String]) -> Vec<emela_codegen::PlatformFn> {
+    emela_codegen::platform_interface()
+}
+
 /// Builds `input` to a `wasm-wasi` module and executes it in-process, exiting
 /// the process with the program's exit code. `run` runs WebAssembly, so only the
 /// wasm backend is accepted.
 #[cfg(feature = "run")]
-fn run_program(input: &PathBuf, packages: &[PathBuf], backend: Option<&str>) -> Result<()> {
+fn run_program(input: &PathBuf, packages: &[PathBuf], host_interfaces: &[String], backend: Option<&str>) -> Result<()> {
     if let Some(name) = backend
         && canonical_backend(name) != "wasm-wasi"
     {
@@ -145,7 +155,7 @@ fn run_program(input: &PathBuf, packages: &[PathBuf], backend: Option<&str>) -> 
             "`run` executes WebAssembly; backend `{name}` is not supported (use `wasm-wasi`)"
         )));
     }
-    let artifact = build(input, packages, Some("wasm-wasi"), EmitMode::Default)?;
+    let artifact = build(input, packages, host_interfaces, Some("wasm-wasi"), EmitMode::Default)?;
     let code = crate::run::execute(&artifact.bytes)?;
     std::process::exit(code)
 }
@@ -153,7 +163,7 @@ fn run_program(input: &PathBuf, packages: &[PathBuf], backend: Option<&str>) -> 
 /// Fallback when the `run` feature is disabled: report it clearly instead of
 /// silently failing to build the module.
 #[cfg(not(feature = "run"))]
-fn run_program(_input: &PathBuf, _packages: &[PathBuf], _backend: Option<&str>) -> Result<()> {
+fn run_program(_input: &PathBuf, _packages: &[PathBuf], _host_interfaces: &[String], _backend: Option<&str>) -> Result<()> {
     Err(Error::new(
         "this `emela` was built without the `run` feature; rebuild with `--features run`",
     ))
@@ -532,8 +542,10 @@ pub(crate) fn compile_source(
     let (program, typed) = compile_frontend_source(Path::new(label), source, &[], true)?;
     let (program, typed) = strip_tests(program, typed);
     let ir = lower::lower(&program, &typed);
+    let platform_registry = build_platform_registry(&[]);
     let options = BackendOptions {
         mode,
+        platform_registry,
         ..Default::default()
     };
     let registry = registry();
@@ -659,6 +671,10 @@ struct CompileArgs {
     /// Add a package root to resolve imports against (repeatable)
     #[arg(long = "package", value_name = "DIR")]
     packages: Vec<PathBuf>,
+    /// Activate an embedded host interface package (spec 0026). Repeatable.
+    /// Example: `--host-interface db` makes `import host.db` available.
+    #[arg(long = "host-interface", value_name = "NAME")]
+    host_interfaces: Vec<String>,
 }
 
 impl CompileArgs {
