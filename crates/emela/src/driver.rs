@@ -42,12 +42,8 @@ pub fn run() -> Result<()> {
     match Cli::parse().command {
         Commands::Check { args } => {
             // `--library` compile-checks a module that has no `main` (spec 0003).
-            let _ = compile_frontend(
-                &args.input,
-                &args.packages,
-                !args.library,
-                &emela_codegen::platform_interface(),
-            )?;
+            let registry = build_platform_registry(&args.host_interfaces, &args.packages, &args.input)?;
+            let _ = compile_frontend(&args.input, &args.packages, !args.library, &registry)?;
             Ok(())
         }
         Commands::Build { args } => {
@@ -58,11 +54,8 @@ pub fn run() -> Result<()> {
         }
         Commands::Ir { args, rc } => {
             reject_library(&args, "ir")?;
-            let mut ir = compile_to_ir(
-                &args.input,
-                &args.packages,
-                &emela_codegen::platform_interface(),
-            )?;
+            let registry = build_platform_registry(&args.host_interfaces, &args.packages, &args.input)?;
+            let mut ir = compile_to_ir(&args.input, &args.packages, &registry)?;
             if rc {
                 emela_codegen::insert_rc_ops(&mut ir);
             }
