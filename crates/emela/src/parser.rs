@@ -881,11 +881,9 @@ impl Parser {
         let first = self.expect_ident()?;
         // Dotted paths are only valid for `host.<name>` capabilities.
         if first == "host" && self.at(&TokenKind::Dot) {
-            let mut parts = vec![first];
-            while self.eat(&TokenKind::Dot) {
-                parts.push(self.expect_ident()?);
-            }
-            return Ok(parts.join("."));
+            self.eat(&TokenKind::Dot);
+            let second = self.expect_ident()?;
+            return Ok(format!("host.{second}"));
         }
         Ok(first)
     }
