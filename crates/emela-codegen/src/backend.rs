@@ -82,6 +82,11 @@ pub struct BackendOptions {
     /// The platform registry (standard + host externs) for capability manifest
     /// generation (spec 0025). Backends use this to map platform function names
     /// to their capabilities.
+    ///
+    /// `PlatformFn` does not implement `Serialize`/`Deserialize`, so this field
+    /// is skipped. External (process) backends use `PluginRequest` instead,
+    /// which omits the registry; only in-process backends (WASM) consume it
+    /// directly from `BackendOptions`.
     #[serde(skip)]
     pub platform_registry: Vec<crate::PlatformFn>,
 }

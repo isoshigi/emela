@@ -27,6 +27,7 @@ pub(crate) fn check_document(
     doc: &Document,
     store: &DocumentStore,
     package_paths: &[PathBuf],
+    platform_registry: &[emela_codegen::PlatformFn],
 ) -> CheckOutcome {
     let path = doc
         .path
@@ -52,7 +53,7 @@ pub(crate) fn check_document(
         &packages,
         require_main,
         &overlay,
-        &emela_codegen::platform_interface(),
+        platform_registry,
     );
     errors.extend(extra_errors);
     CheckOutcome {

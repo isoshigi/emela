@@ -95,9 +95,24 @@ pub fn run() -> Result<()> {
             Ok(())
         }
         // `emela test` (spec 0040): run the current Pome's `@test` functions.
-        Commands::Test => run_tests(),
+        Commands::Test { host_interfaces } => {
+            let project = crate::pome::project_dir()?;
+            let input = project.join("src").join("main.emel");
+            let registry = build_platform_registry(&host_interfaces, &[], &input)?;
+            run_tests(&registry)
+        }
         // `emela lsp` (spec 0033): the language server over stdio.
-        Commands::Lsp { packages } => crate::lsp::run(packages),
+        Commands::Lsp {
+            packages,
+            host_interfaces,
+        } => {
+            let input = match crate::pome::project_dir() {
+                Ok(project) => project.join("src").join("main.emel"),
+                Err(_) => PathBuf::from(".").join("dummy.emel"),
+            };
+            let registry = build_platform_registry(&host_interfaces, &packages, &input)?;
+            crate::lsp::run(packages, registry)
+        }
         Commands::Fmt { check, mut paths } => {
             // No paths means the current directory (spec 0035 C1).
             if paths.is_empty() {
@@ -105,7 +120,15 @@ pub fn run() -> Result<()> {
             }
             crate::fmt::run(&paths, check)
         }
-        Commands::Lint { inputs, packages } => crate::lint::run(&inputs, &packages),
+        Commands::Lint {
+            inputs,
+            packages,
+            host_interfaces,
+        } => {
+            let input = inputs.first().cloned().unwrap_or_default();
+            let registry = build_platform_registry(&host_interfaces, &packages, &input)?;
+            crate::lint::run(&inputs, &packages, &registry)
+        }
         Commands::New { name } => crate::pome::scaffold(&name),
         Commands::Pome { args } => crate::pome::run(&args),
     }
@@ -316,12 +339,12 @@ fn run_program(
 /// `emela test` executes tests in-process like `run`, so it needs the same
 /// feature.
 #[cfg(feature = "run")]
-fn run_tests() -> Result<()> {
-    crate::test_runner::run()
+fn run_tests(platform_registry: &[emela_codegen::PlatformFn]) -> Result<()> {
+    crate::test_runner::run(platform_registry)
 }
 
 #[cfg(not(feature = "run"))]
-fn run_tests() -> Result<()> {
+fn run_tests(_platform_registry: &[emela_codegen::PlatformFn]) -> Result<()> {
     Err(Error::new(
         "this `emela` was built without the `run` feature; rebuild with `--features run`",
     ))
@@ -779,7 +802,11 @@ enum Commands {
         args: CompileArgs,
     },
     /// Discover and run the current Pome's tests (spec 0040)
-    Test,
+    Test {
+        /// Activate an embedded host interface package (spec 0026). Repeatable.
+        #[arg(long = "host-interface", value_name = "NAME")]
+        host_interfaces: Vec<String>,
+    },
     /// List the available compiler backends
     Backends,
     /// Start the language server over stdio (spec 0033)
@@ -787,6 +814,9 @@ enum Commands {
         /// Package root to resolve imports against (repeatable)
         #[arg(long = "package", value_name = "DIR")]
         packages: Vec<PathBuf>,
+        /// Activate an embedded host interface package (spec 0026). Repeatable.
+        #[arg(long = "host-interface", value_name = "NAME")]
+        host_interfaces: Vec<String>,
     },
     /// Format Emela source files (spec 0035)
     Fmt {
@@ -802,6 +832,9 @@ enum Commands {
         /// Package root to resolve imports against (repeatable)
         #[arg(long = "package", value_name = "DIR")]
         packages: Vec<PathBuf>,
+        /// Activate an embedded host interface package (spec 0026). Repeatable.
+        #[arg(long = "host-interface", value_name = "NAME")]
+        host_interfaces: Vec<String>,
         /// Source files to lint
         #[arg(value_name = "FILE", required = true)]
         inputs: Vec<PathBuf>,
