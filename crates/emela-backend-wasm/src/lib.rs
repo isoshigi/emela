@@ -987,20 +987,20 @@ fn platform_import(canonical: &str) -> Option<&'static str> {
         ),
         // The Fs capability (spec 0055): host file-system supplied by the
         // `emela run` host through the `emela_fs` module.
-        "fs.open_read" => Some(
-            "  (import \"emela_fs\" \"open_read\" (func $host_fs_open_read (param i32) (result i32)))\n",
+        "fs.raw_open_read" => Some(
+            "  (import \"emela_fs\" \"raw_open_read\" (func $host_fs_raw_open_read (param i32) (result i32)))\n",
         ),
-        "fs.open_write" => Some(
-            "  (import \"emela_fs\" \"open_write\" (func $host_fs_open_write (param i32) (result i32)))\n",
+        "fs.raw_open_write" => Some(
+            "  (import \"emela_fs\" \"raw_open_write\" (func $host_fs_raw_open_write (param i32) (result i32)))\n",
         ),
-        "fs.read" => Some(
-            "  (import \"emela_fs\" \"read\" (func $host_fs_read (param i32 i32) (result i32)))\n",
+        "fs.raw_read" => Some(
+            "  (import \"emela_fs\" \"raw_read\" (func $host_fs_raw_read (param i32 i32) (result i32)))\n",
         ),
-        "fs.write" => Some(
-            "  (import \"emela_fs\" \"write\" (func $host_fs_write (param i32 i32) (result i32)))\n",
+        "fs.raw_write" => Some(
+            "  (import \"emela_fs\" \"raw_write\" (func $host_fs_raw_write (param i32 i32) (result i32)))\n",
         ),
-        "fs.close" => Some(
-            "  (import \"emela_fs\" \"close\" (func $host_fs_close (param i32) (result i32)))\n",
+        "fs.raw_close" => Some(
+            "  (import \"emela_fs\" \"raw_close\" (func $host_fs_raw_close (param i32) (result i32)))\n",
         ),
         _ => None,
     }
@@ -1095,11 +1095,11 @@ fn platform_glue(canonical: &str) -> Option<&'static str> {
         "random.raw_int" => Some(RANDOM_RAW_INT_GLUE),
         "random.raw_bytes" => Some(RANDOM_RAW_BYTES_GLUE),
         // The Fs capability (spec 0055): forward to the `emela_fs` host module.
-        "fs.open_read" => Some(FS_OPEN_READ_GLUE),
-        "fs.open_write" => Some(FS_OPEN_WRITE_GLUE),
-        "fs.read" => Some(FS_READ_GLUE),
-        "fs.write" => Some(FS_WRITE_GLUE),
-        "fs.close" => Some(FS_CLOSE_GLUE),
+        "fs.raw_open_read" => Some(FS_RAW_OPEN_READ_GLUE),
+        "fs.raw_open_write" => Some(FS_RAW_OPEN_WRITE_GLUE),
+        "fs.raw_read" => Some(FS_RAW_READ_GLUE),
+        "fs.raw_write" => Some(FS_RAW_WRITE_GLUE),
+        "fs.raw_close" => Some(FS_RAW_CLOSE_GLUE),
         _ => None,
     }
 }
@@ -1116,11 +1116,11 @@ const RANDOM_RAW_BYTES_GLUE: &str = "  (func $plat_random_raw_bytes (param $len 
 // file-system. `open_read`/`open_write` take a path string and return a result
 // cell; `read`/`write` forward the file record and size/data; `close` takes
 // the raw id and cannot fail.
-const FS_OPEN_READ_GLUE: &str = "  (func $plat_fs_open_read (param $path i32) (result i32)\n    local.get $path\n    call $host_fs_open_read)\n";
-const FS_OPEN_WRITE_GLUE: &str = "  (func $plat_fs_open_write (param $path i32) (result i32)\n    local.get $path\n    call $host_fs_open_write)\n";
-const FS_READ_GLUE: &str = "  (func $plat_fs_read (param $file i32) (param $max i32) (result i32)\n    local.get $file\n    local.get $max\n    call $host_fs_read)\n";
-const FS_WRITE_GLUE: &str = "  (func $plat_fs_write (param $file i32) (param $data i32) (result i32)\n    local.get $file\n    local.get $data\n    call $host_fs_write)\n";
-const FS_CLOSE_GLUE: &str = "  (func $plat_fs_close (param $handle i32) (result i32)\n    local.get $handle\n    call $host_fs_close)\n";
+const FS_RAW_OPEN_READ_GLUE: &str = "  (func $plat_fs_raw_open_read (param $path i32) (result i32)\n    local.get $path\n    call $host_fs_raw_open_read)\n";
+const FS_RAW_OPEN_WRITE_GLUE: &str = "  (func $plat_fs_raw_open_write (param $path i32) (result i32)\n    local.get $path\n    call $host_fs_raw_open_write)\n";
+const FS_RAW_READ_GLUE: &str = "  (func $plat_fs_raw_read (param $file i32) (param $max i32) (result i32)\n    local.get $file\n    local.get $max\n    call $host_fs_raw_read)\n";
+const FS_RAW_WRITE_GLUE: &str = "  (func $plat_fs_raw_write (param $file i32) (param $data i32) (result i32)\n    local.get $file\n    local.get $data\n    call $host_fs_raw_write)\n";
+const FS_RAW_CLOSE_GLUE: &str = "  (func $plat_fs_raw_close (param $handle i32) (result i32)\n    local.get $handle\n    call $host_fs_raw_close)\n";
 
 /// `http.request` (spec 0044) passes the guest `Request` pointer to the host,
 /// which reads it from linear memory, performs the exchange, and returns a

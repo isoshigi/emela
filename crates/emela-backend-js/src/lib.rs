@@ -130,19 +130,19 @@ fn runtime_impl(name: &str) -> Option<&'static str> {
         "clock.monotonic_seconds" => Some("() => Math.floor(Date.now() / 1000)"),
         // The Fs capability (spec 0055): host file-system via Node.js `fs`.
         // Enums: { tag: N, values: [...] }.  File record: [fd].
-        "fs.open_read" => Some(
+        "fs.raw_open_read" => Some(
             "(p) => { const fs = require('fs'); try { return [fs.openSync(p, 'r')]; } catch (e) { throw new EmelaError({ tag: e.code === 'ENOENT' ? 0 : 2, values: [e.message || ''] }); } }",
         ),
-        "fs.open_write" => Some(
+        "fs.raw_open_write" => Some(
             "(p) => { const fs = require('fs'); try { return [fs.openSync(p, 'w')]; } catch (e) { const t = e.code === 'EACCES' || e.code === 'EPERM' ? 1 : 2; throw new EmelaError({ tag: t, values: [e.message || ''] }); } }",
         ),
-        "fs.read" => Some(
+        "fs.raw_read" => Some(
             "(f, m) => { const fs = require('fs'); try { const len = m > 0 ? m : 0; const buf = Buffer.alloc(len); const n = fs.readSync(f[0], buf, 0, len); return buf.subarray(0, n); } catch (e) { throw new EmelaError({ tag: 2, values: [e.message || ''] }); } }",
         ),
-        "fs.write" => Some(
+        "fs.raw_write" => Some(
             "(f, d) => { const fs = require('fs'); try { fs.writeSync(f[0], d); } catch (e) { throw new EmelaError({ tag: 2, values: [e.message || ''] }); } }",
         ),
-        "fs.close" => Some("(h) => { try { require('fs').closeSync(h); } catch (e) {} }"),
+        "fs.raw_close" => Some("(h) => { try { require('fs').closeSync(h); } catch (e) {} }"),
         _ => None,
     }
 }

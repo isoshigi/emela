@@ -415,25 +415,25 @@ fn link_fs(linker: &mut Linker<Host>) -> Result<()> {
     linker
         .func_wrap(
             "emela_fs",
-            "open_read",
+            "raw_open_read",
             |mut caller: Caller<'_, Host>, path: i32| -> std::result::Result<i32, wasmi::Error> {
                 crate::fs_host::open_read(&mut caller, path)
             },
         )
-        .map_err(|err| Error::new(format!("failed to link `emela_fs.open_read`: {err}")))?;
+        .map_err(|err| Error::new(format!("failed to link `emela_fs.raw_open_read`: {err}")))?;
     linker
         .func_wrap(
             "emela_fs",
-            "open_write",
+            "raw_open_write",
             |mut caller: Caller<'_, Host>, path: i32| -> std::result::Result<i32, wasmi::Error> {
                 crate::fs_host::open_write(&mut caller, path)
             },
         )
-        .map_err(|err| Error::new(format!("failed to link `emela_fs.open_write`: {err}")))?;
+        .map_err(|err| Error::new(format!("failed to link `emela_fs.raw_open_write`: {err}")))?;
     linker
         .func_wrap(
             "emela_fs",
-            "read",
+            "raw_read",
             |mut caller: Caller<'_, Host>,
              file_ptr: i32,
              max: i32|
@@ -441,11 +441,11 @@ fn link_fs(linker: &mut Linker<Host>) -> Result<()> {
                 crate::fs_host::read(&mut caller, file_ptr, max)
             },
         )
-        .map_err(|err| Error::new(format!("failed to link `emela_fs.read`: {err}")))?;
+        .map_err(|err| Error::new(format!("failed to link `emela_fs.raw_read`: {err}")))?;
     linker
         .func_wrap(
             "emela_fs",
-            "write",
+            "raw_write",
             |mut caller: Caller<'_, Host>,
              file_ptr: i32,
              data_ptr: i32|
@@ -453,16 +453,16 @@ fn link_fs(linker: &mut Linker<Host>) -> Result<()> {
                 crate::fs_host::write(&mut caller, file_ptr, data_ptr)
             },
         )
-        .map_err(|err| Error::new(format!("failed to link `emela_fs.write`: {err}")))?;
+        .map_err(|err| Error::new(format!("failed to link `emela_fs.raw_write`: {err}")))?;
     linker
         .func_wrap(
             "emela_fs",
-            "close",
+            "raw_close",
             |mut caller: Caller<'_, Host>, handle: i32| -> std::result::Result<i32, wasmi::Error> {
                 crate::fs_host::close(&mut caller, handle)
             },
         )
-        .map_err(|err| Error::new(format!("failed to link `emela_fs.close`: {err}")))?;
+        .map_err(|err| Error::new(format!("failed to link `emela_fs.raw_close`: {err}")))?;
     Ok(())
 }
 

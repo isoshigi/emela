@@ -120,9 +120,9 @@ fn wasip2_wat(program: &str) -> String {
 // ===========================================================================
 
 /// Imports `std.fs` and calls each public operation inside `uses { Fs }`. This
-/// exercises the whole effect block: `open_for_read`/`open_for_write` (the open
-/// wrappers), `read_from`/`write_to` (the data wrappers), `close_file` (the
-/// close wrapper), and `read_file`/`write_file` (the convenience wrappers).
+/// exercises the whole effect block: `open_read`/`open_write` (the open
+/// wrappers), `read`/`write` (the data wrappers), `close` (the close wrapper),
+/// and `read_file`/`write_file` (the convenience wrappers).
 #[test]
 fn fs_module_imports_and_typechecks() {
     let output = check_single(
@@ -131,10 +131,10 @@ fn fs_module_imports_and_typechecks() {
          \n\
          fn main() -> Unit uses { Fs } {\n\
              try {\n\
-                 let f = Fs.open_for_read(\"in.txt\")\n\
+                 let f = Fs.open_read(\"in.txt\")\n\
                  let data = Fs.read_file(\"in.txt\")\n\
                  let n = bytes.length(data)\n\
-                 Fs.close_file(f)\n\
+                 Fs.close(f.id)\n\
              } catch { e -> () }\n\
          }\n",
     );
@@ -172,15 +172,14 @@ fn fs_error_is_matchable() {
 }
 
 /// An `Fs` operation is usable only inside a `uses { Fs }` scope: calling
-/// `Fs.close_file` from a `uses {}` function is rejected (spec 0037).
+/// `Fs.close` from a `uses {}` function is rejected (spec 0037).
 #[test]
 fn fs_operation_requires_capability() {
     let output = check_single(
         "import std.fs\n\
          \n\
          fn main() -> Unit uses {} {\n\
-             let f = File { id: 1 }\n\
-             try { Fs.close_file(f) } catch { e -> () }\n\
+             try { Fs.close(1) } catch { e -> () }\n\
          }\n",
     );
     assert!(!output.status.success(), "expected check to fail");
@@ -191,9 +190,9 @@ fn fs_operation_requires_capability() {
     );
 }
 
-/// The backing `open_read`/`open_write`/`read`/`write` operations are private to
-/// the effect (spec 0037): a program cannot call `Fs.open_read` directly; only
-/// the `pub fn` wrappers are public.
+/// The backing `raw_open_read`/`raw_open_write`/`raw_read`/`raw_write`
+/// operations are private to the effect (spec 0037): a program cannot call
+/// `Fs.raw_open_read` directly; only the `pub fn` wrappers are public.
 #[test]
 fn backing_operations_are_private() {
     let output = check_single(
@@ -201,13 +200,13 @@ fn backing_operations_are_private() {
          \n\
          fn main() -> Unit uses { Fs } {\n\
              try {\n\
-                 let _ = Fs.open_read(\"in.txt\")\n\
+                 let _ = Fs.raw_open_read(\"in.txt\")\n\
              } catch { e -> () }\n\
          }\n",
     );
     assert!(
         !output.status.success(),
-        "expected check to fail: open_read is private"
+        "expected check to fail: raw_open_read is private"
     );
 }
 
@@ -343,7 +342,7 @@ fn fs_effect_lowers_to_wasi_filesystem_on_wasip2() {
     let program = "import std.fs\n\
         fn main() -> Int uses { Fs } {\n\
         \x20   try {\n\
-        \x20       let f = Fs.open_for_read(\"x\")\n\
+        \x20       let f = Fs.open_read(\"x\")\n\
         \x20       f.id\n\
         \x20   } catch { e -> 0 }\n\
         }\n";
