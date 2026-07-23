@@ -788,6 +788,7 @@ pub fn emit_module(
                 matches!(name.as_str(), "io.write_stdout" | "io.write_stderr")
                     || name.starts_with("socket.")
                     || name.starts_with("random.")
+                    || name.starts_with("fs.")
             }
         };
         if !provided {
@@ -894,6 +895,9 @@ pub fn emit_module(
     if target == WasmTarget::Wasip2 && used_platform.iter().any(|n| n.starts_with("socket.")) {
         module.push_str(wasip2_socket_glue());
     }
+    if target == WasmTarget::Wasip2 && used_platform.iter().any(|n| n.starts_with("fs.")) {
+        module.push_str(wasip2_fs_glue());
+    }
     module.push_str(&functions);
     module.push_str(&emit_drop_glue(&drops));
     match target {
@@ -918,7 +922,10 @@ pub fn emit_module(
     }
     if target == WasmTarget::Wasi
         && used_platform.iter().any(|name| {
-            name.starts_with("http.") || name.starts_with("socket.") || name == "random.raw_bytes"
+            name.starts_with("http.")
+                || name.starts_with("socket.")
+                || name.starts_with("fs.")
+                || name == "random.raw_bytes"
         })
     {
         // The HTTP, Socket, and Random host functions (specs 0043/0044/0050/0054)
@@ -977,6 +984,23 @@ fn platform_import(canonical: &str) -> Option<&'static str> {
         ),
         "random.raw_bytes" => Some(
             "  (import \"emela_random\" \"raw_bytes\" (func $host_random_raw_bytes (param i32) (result i32)))\n",
+        ),
+        // The Fs capability (spec 0055): host file-system supplied by the
+        // `emela run` host through the `emela_fs` module.
+        "fs.raw_open_read" => Some(
+            "  (import \"emela_fs\" \"raw_open_read\" (func $host_fs_raw_open_read (param i32) (result i32)))\n",
+        ),
+        "fs.raw_open_write" => Some(
+            "  (import \"emela_fs\" \"raw_open_write\" (func $host_fs_raw_open_write (param i32) (result i32)))\n",
+        ),
+        "fs.raw_read" => Some(
+            "  (import \"emela_fs\" \"raw_read\" (func $host_fs_raw_read (param i32 i32) (result i32)))\n",
+        ),
+        "fs.raw_write" => Some(
+            "  (import \"emela_fs\" \"raw_write\" (func $host_fs_raw_write (param i32 i32) (result i32)))\n",
+        ),
+        "fs.raw_close" => Some(
+            "  (import \"emela_fs\" \"raw_close\" (func $host_fs_raw_close (param i32) (result i32)))\n",
         ),
         _ => None,
     }
@@ -1070,6 +1094,12 @@ fn platform_glue(canonical: &str) -> Option<&'static str> {
         "socket.raw_close" => Some(SOCKET_RAW_CLOSE_GLUE),
         "random.raw_int" => Some(RANDOM_RAW_INT_GLUE),
         "random.raw_bytes" => Some(RANDOM_RAW_BYTES_GLUE),
+        // The Fs capability (spec 0055): forward to the `emela_fs` host module.
+        "fs.raw_open_read" => Some(FS_RAW_OPEN_READ_GLUE),
+        "fs.raw_open_write" => Some(FS_RAW_OPEN_WRITE_GLUE),
+        "fs.raw_read" => Some(FS_RAW_READ_GLUE),
+        "fs.raw_write" => Some(FS_RAW_WRITE_GLUE),
+        "fs.raw_close" => Some(FS_RAW_CLOSE_GLUE),
         _ => None,
     }
 }
@@ -1081,6 +1111,16 @@ const RANDOM_RAW_INT_GLUE: &str =
     "  (func $plat_random_raw_int (result i32)\n    call $host_random_raw_int)\n";
 
 const RANDOM_RAW_BYTES_GLUE: &str = "  (func $plat_random_raw_bytes (param $len i32) (result i32)\n    local.get $len\n    call $host_random_raw_bytes)\n";
+
+// The Fs operations (spec 0055) forward to the host, which supplies the
+// file-system. `open_read`/`open_write` take a path string and return a result
+// cell; `read`/`write` forward the file record and size/data; `close` takes
+// the raw id and cannot fail.
+const FS_RAW_OPEN_READ_GLUE: &str = "  (func $plat_fs_raw_open_read (param $path i32) (result i32)\n    local.get $path\n    call $host_fs_raw_open_read)\n";
+const FS_RAW_OPEN_WRITE_GLUE: &str = "  (func $plat_fs_raw_open_write (param $path i32) (result i32)\n    local.get $path\n    call $host_fs_raw_open_write)\n";
+const FS_RAW_READ_GLUE: &str = "  (func $plat_fs_raw_read (param $file i32) (param $max i32) (result i32)\n    local.get $file\n    local.get $max\n    call $host_fs_raw_read)\n";
+const FS_RAW_WRITE_GLUE: &str = "  (func $plat_fs_raw_write (param $file i32) (param $data i32) (result i32)\n    local.get $file\n    local.get $data\n    call $host_fs_raw_write)\n";
+const FS_RAW_CLOSE_GLUE: &str = "  (func $plat_fs_raw_close (param $handle i32) (result i32)\n    local.get $handle\n    call $host_fs_raw_close)\n";
 
 /// `http.request` (spec 0044) passes the guest `Request` pointer to the host,
 /// which reads it from linear memory, performs the exchange, and returns a
@@ -1116,6 +1156,7 @@ fn wasip2_imports(used: &[String]) -> String {
     let uses_socket = used.iter().any(|n| n.starts_with("socket."));
     let uses_rand_int = used.iter().any(|n| n == "random.raw_int");
     let uses_rand_bytes = used.iter().any(|n| n == "random.raw_bytes");
+    let uses_fs = used.iter().any(|n| n.starts_with("fs."));
     let mut out = String::new();
     // The output-stream write + drop are shared by stdout/stderr (io) and by
     // `socket.write`/`close`, so they are imported once.
@@ -1153,6 +1194,13 @@ fn wasip2_imports(used: &[String]) -> String {
             "  (import \"wasi:random/random@0.2.0\" \"get-random-bytes\" (func $wsi_rand_bytes (param i64 i32)))\n",
         );
     }
+    // The Fs capability (spec 0055) over `wasi:filesystem`. `get-directories`
+    // returns the preopened directory descriptors; `open-at` opens a file
+    // relative to one; `read-via-stream`/`write-via-stream` produce streams
+    // for I/O; `[resource-drop]descriptor` releases the file handle.
+    if uses_fs {
+        out.push_str(WASIP2_FS_IMPORTS);
+    }
     out
 }
 
@@ -1175,6 +1223,19 @@ const WASIP2_SOCKET_IMPORTS: &str = "\
   (import \"wasi:io/poll@0.2.0\" \"[resource-drop]pollable\" (func $wsi_poll_drop (param i32)))
   (import \"wasi:io/streams@0.2.0\" \"[method]input-stream.blocking-read\" (func $wsi_read (param i32 i64 i32)))
   (import \"wasi:io/streams@0.2.0\" \"[resource-drop]input-stream\" (func $wsi_in_drop (param i32)))
+";
+
+/// The `wasi:filesystem` core imports (canonical-ABI signatures) for the `Fs`
+/// capability (spec 0055). `get-directories` returns preopened directory
+/// descriptors; `open-at` opens a file relative to one; `read-via-stream`/
+/// `write-via-stream` produce streams for I/O; `[resource-drop]descriptor`
+/// releases the file handle.
+const WASIP2_FS_IMPORTS: &str = "\
+  (import \"wasi:filesystem/preopens@0.2.0\" \"get-directories\" (func $wsi_get_dirs (param i32)))\n\
+  (import \"wasi:filesystem/types@0.2.0\" \"[method]descriptor.open-at\" (func $wsi_open_at (param i32 i32 i32 i32 i32 i32 i32)))\n\
+  (import \"wasi:filesystem/types@0.2.0\" \"[method]descriptor.read-via-stream\" (func $wsi_read_via_stream (param i32 i64 i32)))\n\
+  (import \"wasi:filesystem/types@0.2.0\" \"[method]descriptor.write-via-stream\" (func $wsi_write_via_stream (param i32 i64 i32)))\n\
+  (import \"wasi:filesystem/types@0.2.0\" \"[resource-drop]descriptor\" (func $wsi_desc_drop (param i32)))\n\
 ";
 
 /// The `Wasip2` runtime glue for a platform function (spec 0052), or `None`.
@@ -1329,6 +1390,191 @@ const WASIP2_SOCKET_GLUE: &str = r#"  (func $sock_err (result i32)
       local.get $blk i32.const 12 i32.add i32.load call $os_drop
       local.get $blk i32.const 4 i32.add i32.load call $wsi_tcp_drop
     end
+    i32.const 0)
+"#;
+
+/// The `Fs` capability glue (spec 0055) over `wasi:filesystem`. Emitted once
+/// when any `fs.*` is used. A `File` `id` is a pointer to a 16-byte handle
+/// block `[descriptor][offset_low][offset_high][pad]` (the offset tracks the
+/// read/write position).
+fn wasip2_fs_glue() -> &'static str {
+    WASIP2_FS_GLUE
+}
+
+const WASIP2_FS_GLUE: &str = r#"  (global $wsi_root_dir (mut i32) (i32.const 0))
+  ;; Cache the first preopened directory descriptor (spec 0055 P10).
+  (func $wsi_get_root_dir (result i32)
+    (local $ptr i32)
+    global.get $wsi_root_dir
+    if (result i32)
+      global.get $wsi_root_dir
+    else
+      i32.const 0 call $wsi_get_dirs
+      i32.const 0 i32.load local.set $ptr
+      local.get $ptr
+      if (result i32)
+        local.get $ptr i32.load
+        global.set $wsi_root_dir
+        global.get $wsi_root_dir
+      else
+        i32.const 0
+      end
+    end)
+  ;; Map a wasi:filesystem error-code to an FsError result cell.
+  ;; Tags: 0=NotFound, 1=PermissionDenied, 2=Io.
+  ;; error-code: 0 unknown, 1 access-denied, 2 not-permitted, 3 io, 4 no-entry.
+  (func $fs_err_code (param $ec i32) (param $msg_ptr i32) (param $msg_len i32) (result i32)
+    (local $tag i32) (local $str i32) (local $e i32) (local $c i32)
+    block $mapped
+      local.get $ec i32.const 4 i32.eq
+      if i32.const 0 local.set $tag br $mapped end
+      local.get $ec i32.const 1 i32.eq
+      local.get $ec i32.const 2 i32.eq
+      i32.or
+      if i32.const 1 local.set $tag br $mapped end
+      i32.const 2 local.set $tag
+    end $mapped
+    i32.const 4 local.get $msg_len i32.add call $alloc_host local.set $str
+    local.get $str local.get $msg_len i32.store
+    local.get $str i32.const 4 i32.add local.get $msg_ptr local.get $msg_len memory.copy
+    i32.const 16 call $alloc_host local.set $e
+    local.get $e local.get $tag i32.store
+    local.get $e i32.const 8 i32.add local.get $str i32.store
+    i32.const 16 call $alloc_host local.set $c
+    local.get $c i32.const 0 i32.store
+    local.get $c i32.const 8 i32.add local.get $e i32.store
+    local.get $c)
+  ;; An FsError::Io with no message (for stream errors).
+  (func $fs_io_err (result i32)
+    (local $e i32) (local $c i32)
+    i32.const 16 call $alloc_host local.set $e
+    local.get $e i32.const 2 i32.store
+    i32.const 16 call $alloc_host local.set $c
+    local.get $c i32.const 0 i32.store
+    local.get $c i32.const 8 i32.add local.get $e i32.store
+    local.get $c)
+  ;; An ok result cell wrapping a value.
+  (func $fs_ok_val (param $v i32) (result i32)
+    (local $c i32)
+    i32.const 16 call $alloc_host local.set $c
+    local.get $c i32.const 1 i32.store
+    local.get $c i32.const 8 i32.add local.get $v i32.store
+    local.get $c)
+  (func $plat_fs_open_read (param $path i32) (result i32)
+    (local $root i32) (local $hdl i32) (local $blk i32) (local $rec i32)
+    call $wsi_get_root_dir local.set $root
+    local.get $root
+    if
+      local.get $root
+      i32.const 0 local.get $path i32.const 4 i32.add local.get $path i32.load
+      i32.const 0 i32.const 1 i32.const 0 call $wsi_open_at
+      i32.const 0 i32.load
+      if
+        i32.const 4 i32.load local.set $hdl
+        i32.const 16 call $alloc_host local.set $blk
+        local.get $blk local.get $hdl i32.store
+        i32.const 8 call $alloc_host local.set $rec
+        local.get $rec local.get $blk i32.store
+        local.get $rec call $fs_ok_val
+      else
+        i32.const 4 i32.load local.get $path i32.const 4 i32.add local.get $path i32.load
+        call $fs_err_code
+      end
+    else
+      i32.const 0 call $fs_io_err
+    end)
+  (func $plat_fs_open_write (param $path i32) (result i32)
+    (local $root i32) (local $hdl i32) (local $blk i32) (local $rec i32)
+    call $wsi_get_root_dir local.set $root
+    local.get $root
+    if
+      local.get $root
+      i32.const 0 local.get $path i32.const 4 i32.add local.get $path i32.load
+      i32.const 9 i32.const 2 i32.const 0 call $wsi_open_at
+      i32.const 0 i32.load
+      if
+        i32.const 4 i32.load local.set $hdl
+        i32.const 16 call $alloc_host local.set $blk
+        local.get $blk local.get $hdl i32.store
+        i32.const 8 call $alloc_host local.set $rec
+        local.get $rec local.get $blk i32.store
+        local.get $rec call $fs_ok_val
+      else
+        i32.const 4 i32.load local.get $path i32.const 4 i32.add local.get $path i32.load
+        call $fs_err_code
+      end
+    else
+      i32.const 0 call $fs_io_err
+    end)
+  (func $plat_fs_read (param $file_ptr i32) (param $max i32) (result i32)
+    (local $blk i32) (local $hdl i32) (local $olow i32) (local $ohigh i32)
+    (local $in i32) (local $lptr i32) (local $llen i32) (local $b i32)
+    local.get $file_ptr i32.load local.set $blk
+    local.get $blk i32.load local.set $hdl
+    local.get $blk i32.const 4 i32.add i32.load local.set $olow
+    local.get $blk i32.const 8 i32.add i32.load local.set $ohigh
+    local.get $hdl
+    local.get $ohigh i64.extend_i32_u i64.const 32 i64.shl
+    local.get $olow i64.extend_i32_u i64.or
+    i32.const 0 call $wsi_read_via_stream
+    i32.const 0 i32.load
+    if
+      i32.const 4 i32.load local.set $in
+      local.get $in local.get $max i64.extend_i32_u i32.const 0 call $wsi_read
+      i32.const 0 i32.load
+      if
+        local.get $in call $wsi_in_drop
+        call $fs_io_err
+      else
+        i32.const 4 i32.load local.set $lptr
+        i32.const 8 i32.load local.set $llen
+        local.get $in call $wsi_in_drop
+        i32.const 4 local.get $llen i32.add call $alloc_host local.set $b
+        local.get $b local.get $llen i32.store
+        local.get $b i32.const 4 i32.add local.get $lptr local.get $llen memory.copy
+        local.get $blk local.get $blk i32.load i32.store
+        local.get $olow local.get $llen i32.add
+        local.get $blk i32.const 4 i32.add i32.store
+        local.get $ohigh local.get $blk i32.const 4 i32.add i32.load local.get $olow i32.lt_u i32.add
+        local.get $blk i32.const 8 i32.add i32.store
+        local.get $b call $fs_ok_val
+      end
+    else
+      i32.const 4 i32.load "read-via-stream" i32.const 15 call $fs_err_code
+    end)
+  (func $plat_fs_write (param $file_ptr i32) (param $data i32) (result i32)
+    (local $blk i32) (local $hdl i32) (local $olow i32) (local $ohigh i32)
+    (local $out i32)
+    local.get $file_ptr i32.load local.set $blk
+    local.get $blk i32.load local.set $hdl
+    local.get $blk i32.const 4 i32.add i32.load local.set $olow
+    local.get $blk i32.const 8 i32.add i32.load local.set $ohigh
+    local.get $hdl
+    local.get $ohigh i64.extend_i32_u i64.const 32 i64.shl
+    local.get $olow i64.extend_i32_u i64.or
+    i32.const 0 call $wsi_write_via_stream
+    i32.const 0 i32.load
+    if
+      i32.const 4 i32.load local.set $out
+      local.get $out local.get $data i32.const 4 i32.add local.get $data i32.load
+      i32.const 0 call $stream_write
+      i32.const 0 i32.load
+      if
+        local.get $out call $os_drop
+        call $fs_io_err
+      else
+        local.get $out call $os_drop
+        local.get $olow local.get $data i32.load i32.add
+        local.get $blk i32.const 4 i32.add i32.store
+        local.get $ohigh local.get $blk i32.const 4 i32.add i32.load local.get $olow i32.lt_u i32.add
+        local.get $blk i32.const 8 i32.add i32.store
+        i32.const 0 call $fs_ok_val
+      end
+    else
+      i32.const 4 i32.load "write-via-stream" i32.const 16 call $fs_err_code
+    end)
+  (func $plat_fs_close (param $handle i32) (result i32)
+    local.get $handle i32.load call $wsi_desc_drop
     i32.const 0)
 "#;
 
@@ -3217,7 +3463,10 @@ mod platform_tests {
     #[test]
     fn rejects_unprovided_platform_fn() {
         let err = WasmBackend
-            .compile(&main_platform("fs.read"), &BackendOptions::default())
+            .compile(
+                &main_platform("nonexistent.do_stuff"),
+                &BackendOptions::default(),
+            )
             .unwrap_err();
         assert!(err.to_string().contains("does not provide"), "{err}");
     }
