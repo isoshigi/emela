@@ -11,10 +11,13 @@ use serde_json::{Value, json};
 
 use crate::error::{Error, Result};
 use crate::lsp::analysis::{self, Snapshot};
+use crate::lsp::code_action;
 use crate::lsp::completion;
 use crate::lsp::documents::DocumentStore;
+use crate::lsp::hover;
 use crate::lsp::protocol::{
-    CompletionParams, DidChangeParams, DidCloseParams, DidOpenParams, PublishDiagnosticsParams,
+    CodeActionParams, CompletionParams, DidChangeParams, DidCloseParams, DidOpenParams,
+    HoverParams, PublishDiagnosticsParams,
 };
 use crate::lsp::rpc::{self, Message};
 
@@ -158,6 +161,41 @@ impl Server {
                 };
                 rpc::write_response(out, &id, serde_json::to_value(items)?)?;
             }
+            ("textDocument/hover", Some(id)) => {
+                let Ok(params) = serde_json::from_value::<HoverParams>(message.params) else {
+                    return rpc::write_error(out, &id, INVALID_PARAMS, "invalid params")
+                        .map(|()| None);
+                };
+                let result = match (
+                    self.documents.get(&params.text_document.uri),
+                    self.snapshots.get(&params.text_document.uri),
+                ) {
+                    (Some(doc), Some(snapshot)) => hover::hover(doc, &params.position, snapshot),
+                    _ => None,
+                };
+                // "Nothing to show" is a `null` result, not an error.
+                let value = match result {
+                    Some(hover) => serde_json::to_value(hover)?,
+                    None => Value::Null,
+                };
+                rpc::write_response(out, &id, value)?;
+            }
+            ("textDocument/codeAction", Some(id)) => {
+                let Ok(params) = serde_json::from_value::<CodeActionParams>(message.params) else {
+                    return rpc::write_error(out, &id, INVALID_PARAMS, "invalid params")
+                        .map(|()| None);
+                };
+                let actions = match (
+                    self.documents.get(&params.text_document.uri),
+                    self.snapshots.get(&params.text_document.uri),
+                ) {
+                    (Some(doc), Some(snapshot)) => {
+                        code_action::actions(doc, &params.range, snapshot)
+                    }
+                    _ => Vec::new(),
+                };
+                rpc::write_response(out, &id, serde_json::to_value(actions)?)?;
+            }
             (_, Some(id)) => {
                 rpc::write_error(out, &id, rpc::METHOD_NOT_FOUND, "method not found")?;
             }
@@ -225,6 +263,10 @@ fn capabilities() -> Value {
             },
             "completionProvider": {
                 "triggerCharacters": [".", ":", "{"],
+            },
+            "hoverProvider": true,
+            "codeActionProvider": {
+                "codeActionKinds": ["quickfix"],
             },
         },
         "serverInfo": {
